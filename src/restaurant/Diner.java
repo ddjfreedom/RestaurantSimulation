@@ -36,13 +36,14 @@ public class Diner implements Runnable {
 		return servedTime + EATING_DURATION;
 	}
 	public void printInfo() {
-		System.out.printf("%d %d %d\n", seatedTime, table.getNumber(), servedTime);
+		System.out.printf("seated: %d, table: %d, cook: %d, served: %d\n",
+				seatedTime, table.getNumber(), table.getCook().getNumber(), servedTime);
 	}
 	@Override
 	public void run() {
 		restaurant.enter(this);
 		servedTime = table.getServedTime();
-		restaurant.leave(this);
 		printInfo();
+		restaurant.leave(this);
 	}
 }

@@ -1,18 +1,27 @@
 package restaurant;
 
-public class Table {
-	private int currentTime;
+import java.util.concurrent.*;
+
+public class Table implements Comparable<Table> {
 	private final int number;
+
+	private int currentTime;
 	private Order order;
+	private Cook cook;
+	private SynchronousQueue<Integer> servedTime;
 	
 	public Table(int number) {
 		this.number = number;
+		servedTime = new SynchronousQueue<Integer>();
 		currentTime = 0;
 	}
-	public int getCurrentTime() {
+	public int getNumber() {
+		return number;
+	}
+	public synchronized int getCurrentTime() {
 		return currentTime;
 	}
-	public void setCurrentTime(int currentTime) {
+	public synchronized void setCurrentTime(int currentTime) {
 		this.currentTime = currentTime;
 	}
 	public Order getOrder() {
@@ -21,14 +30,31 @@ public class Table {
 	public void setOrder(Order order) {
 		this.order = order;
 	}
-	public int getNumber() {
-		return number;
+	public Cook getCook() {
+		return cook;
 	}
-	public int getServedTime() { //TODO: change after adding Cook
-		int time = currentTime;
-		time += order.getBurgers() * 5;
-		time += order.getFries() * 3;
-		time += order.getCoke() * 1;
+	public void setCook(Cook cook) {
+		this.cook = cook;
+	}
+	public int getServedTime() {
+		int time = -1;
+		try {
+			time = servedTime.take();
+		} catch (InterruptedException e) {}
 		return time;
 	}
+	public void setServedTime(int time) {
+		try {
+			servedTime.put(time);
+		} catch (InterruptedException e) {}
+	}
+	@Override
+	public int compareTo(Table arg0) {
+		if (currentTime == arg0.currentTime)
+			return 0;
+		else if (currentTime < arg0.currentTime)
+			return -1;
+		else
+			return 1;
+	}	
 }

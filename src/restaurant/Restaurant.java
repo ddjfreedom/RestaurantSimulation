@@ -2,12 +2,18 @@ package restaurant;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
 import java.io.*;
 
 public class Restaurant {
 	private PriorityQueue<Integer> arrivalTimes;
 	private BlockingQueue<Table> emptyTables;
 	private BlockingQueue<Table> unassignedTables;
+	private AtomicInteger numberOfRemainDiners;
+	private PriorityQueue<Table> usedTables;
+	private final int limitOfUsedTables;
+	private PriorityQueue<Cook> availableCooks;
+	private final int numberOfCooks;
 	
 	public Restaurant(int numTables, int numCooks, List<Integer> arrival) {
 		arrivalTimes = new PriorityQueue<Integer>(arrival);
@@ -15,6 +21,11 @@ public class Restaurant {
 		for (int i = 0; i < numTables; ++i)
 			emptyTables.add(new Table(i));
 		unassignedTables = new ArrayBlockingQueue<Table>(numTables, true);
+		numberOfRemainDiners = new AtomicInteger(arrival.size());
+		usedTables = new PriorityQueue<Table>();
+		limitOfUsedTables = (numCooks < numTables ? numCooks : numTables);
+		availableCooks = new PriorityQueue<Cook>();
+		numberOfCooks = numCooks;
 	}
 	public void enter(Diner diner) {
 		synchronized (arrivalTimes) {
@@ -23,8 +34,7 @@ public class Restaurant {
 					arrivalTimes.wait();
 				Table table = emptyTables.take(); // will wait if emptyTables is empty
 				diner.setTable(table);
-				//TODO: uncomment after adding Cook
-				// unassignedTables.put(table);
+				unassignedTables.put(table);
 			} catch (InterruptedException e) {}
 			arrivalTimes.poll();
 			arrivalTimes.notifyAll();
@@ -32,9 +42,36 @@ public class Restaurant {
 	}
 	public void leave(Diner diner) {
 		Table table = diner.getTable();
+		diner.setTable(null);
 		table.setCurrentTime(diner.getFinishedTime());
+		if (numberOfRemainDiners.decrementAndGet() == 0)
+			System.exit(0);
+		
+		/*
+		 * ensure that emptyTables is ordered according to the timestamps
+		 * prevents tables with larger timestamps from getting inserted too early
+		 */
+		synchronized (usedTables) {
+			usedTables.add(table);
+			if (usedTables.size() == limitOfUsedTables) {
+				while (usedTables.peek() != null)
+					emptyTables.offer(usedTables.poll());
+			}
+		}
+	}
+	public void assignCook(Cook cook) {
 		try {
-			emptyTables.put(table);
+			/*
+			 * always choose the cook with the smallest timestamp
+			 */
+			synchronized (availableCooks) {
+				availableCooks.add(cook);
+				availableCooks.notifyAll();
+				while (availableCooks.size() < numberOfCooks || availableCooks.peek() != cook)
+					availableCooks.wait();
+				availableCooks.poll();
+			}
+			cook.setTable(unassignedTables.take());
 		} catch (InterruptedException e) {}
 	}
 	
@@ -93,6 +130,8 @@ public class Restaurant {
 			coke.add(readInt(reader));
 		}
 		Restaurant restaurant = new Restaurant(numTables, numCooks, arrival);
+		for (int i = 0; i < numCooks; ++i)
+			(new Thread(new Cook(i, restaurant))).start();
 		for (int i = 0; i < numDiners; ++i) {
 			Order order = new Order(burgers.get(i), fries.get(i), coke.get(i));
 			(new Thread(new Diner(arrival.get(i), order, restaurant))).start();
