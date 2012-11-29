@@ -7,32 +7,32 @@ import java.io.*;
 
 public class Restaurant {
 	private PriorityQueue<Integer> arrivalTimes;
-	private BlockingQueue<Table> emptyTables;
+	private SynchronousQueue<Table> emptyTable;
+	private PriorityQueue<Table> tables;
 	private BlockingQueue<Table> unassignedTables;
 	private AtomicInteger numberOfRemainDiners;
-	private PriorityQueue<Table> usedTables;
-	private final int limitOfUsedTables;
+	private final int numberOfTables;
 	private PriorityQueue<Cook> availableCooks;
 	private final int numberOfCooks;
 	
 	public Restaurant(int numTables, int numCooks, List<Integer> arrival) {
 		arrivalTimes = new PriorityQueue<Integer>(arrival);
-		emptyTables = new ArrayBlockingQueue<Table>(numTables, true);
+		emptyTable = new SynchronousQueue<Table>(true);
+		tables = new PriorityQueue<Table>(numTables);
 		for (int i = 0; i < numTables; ++i)
-			emptyTables.add(new Table(i));
+			tables.add(new Table(i));
 		unassignedTables = new ArrayBlockingQueue<Table>(numTables, true);
 		numberOfRemainDiners = new AtomicInteger(arrival.size());
-		usedTables = new PriorityQueue<Table>();
-		limitOfUsedTables = (numCooks < numTables ? numCooks : numTables);
 		availableCooks = new PriorityQueue<Cook>();
 		numberOfCooks = numCooks;
+		numberOfTables = numTables;
 	}
 	public void enter(Diner diner) {
 		synchronized (arrivalTimes) {
 			try {
 				while (arrivalTimes.peek() != diner.getArrivalTime())
 					arrivalTimes.wait();
-				Table table = emptyTables.take(); // will wait if emptyTables is empty
+				Table table = emptyTable.take();
 				diner.setTable(table);
 				unassignedTables.put(table);
 			} catch (InterruptedException e) {}
@@ -51,11 +51,12 @@ public class Restaurant {
 		 * ensure that emptyTables is ordered according to the timestamps
 		 * prevents tables with larger timestamps from getting inserted too early
 		 */
-		synchronized (usedTables) {
-			usedTables.add(table);
-			if (usedTables.size() == limitOfUsedTables) {
-				while (usedTables.peek() != null)
-					emptyTables.offer(usedTables.poll());
+		synchronized (tables) {
+			tables.add(table);
+			if (tables.size() == numberOfTables) {
+				try {
+					emptyTable.put(tables.poll());
+				} catch (InterruptedException e) {}
 			}
 		}
 	}
@@ -72,6 +73,11 @@ public class Restaurant {
 				availableCooks.poll();
 			}
 			cook.setTable(unassignedTables.take());
+		} catch (InterruptedException e) {}
+	}
+	public void startSimulation() {
+		try {
+			emptyTable.put(tables.poll());
 		} catch (InterruptedException e) {}
 	}
 	
@@ -136,5 +142,6 @@ public class Restaurant {
 			Order order = new Order(burgers.get(i), fries.get(i), coke.get(i));
 			(new Thread(new Diner(arrival.get(i), order, restaurant))).start();
 		}
+		restaurant.startSimulation();
 	}
 }
