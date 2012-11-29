@@ -6,26 +6,51 @@ import java.util.concurrent.atomic.*;
 import java.io.*;
 
 public class Restaurant {
+	public static int NUMBER_OF_FOOD_TYPES;
+	
 	private PriorityQueue<Integer> arrivalTimes;
+	private AtomicInteger numberOfRemainDiners;
+
 	private SynchronousQueue<Table> emptyTable;
 	private PriorityQueue<Table> tables;
 	private BlockingQueue<Table> unassignedTables;
-	private AtomicInteger numberOfRemainDiners;
 	private final int numberOfTables;
+	
 	private PriorityQueue<Cook> availableCooks;
 	private final int numberOfCooks;
+	private PriorityQueue<Cook> cookingCooks;
+	private AtomicInteger numberOfCookingCooks;
+	
+	private List<Machine> machines;
 	
 	public Restaurant(int numTables, int numCooks, List<Integer> arrival) {
 		arrivalTimes = new PriorityQueue<Integer>(arrival);
+		numberOfRemainDiners = new AtomicInteger(arrival.size());
+
 		emptyTable = new SynchronousQueue<Table>(true);
 		tables = new PriorityQueue<Table>(numTables);
 		for (int i = 0; i < numTables; ++i)
 			tables.add(new Table(i));
 		unassignedTables = new ArrayBlockingQueue<Table>(numTables, true);
-		numberOfRemainDiners = new AtomicInteger(arrival.size());
+		numberOfTables = numTables;
+
 		availableCooks = new PriorityQueue<Cook>();
 		numberOfCooks = numCooks;
-		numberOfTables = numTables;
+		cookingCooks = new PriorityQueue<Cook>();
+		numberOfCookingCooks = new AtomicInteger();
+		
+		machines = new ArrayList<Machine>();
+	}
+	// extra init setting
+	public void addMachine(Machine machine) {
+		synchronized (machines) {
+			machines.add(machine);
+		}
+	}
+	public void startSimulation() {
+		try {
+			emptyTable.put(tables.poll());
+		} catch (InterruptedException e) {}
 	}
 	public void enter(Diner diner) {
 		synchronized (arrivalTimes) {
@@ -44,8 +69,10 @@ public class Restaurant {
 		Table table = diner.getTable();
 		diner.setTable(null);
 		table.setCurrentTime(diner.getFinishedTime());
-		if (numberOfRemainDiners.decrementAndGet() == 0)
+		if (numberOfRemainDiners.decrementAndGet() == 0) {
+			System.out.println(diner.getFinishedTime());
 			System.exit(0);
+		}
 		
 		/*
 		 * ensure that emptyTables is ordered according to the timestamps
@@ -73,12 +100,41 @@ public class Restaurant {
 				availableCooks.poll();
 			}
 			cook.setTable(unassignedTables.take());
+			numberOfCookingCooks.incrementAndGet();
 		} catch (InterruptedException e) {}
 	}
-	public void startSimulation() {
-		try {
-			emptyTable.put(tables.poll());
-		} catch (InterruptedException e) {}
+	public void preparingDish(Cook cook) {
+		Machine machine = null;
+		do {
+			synchronized (cookingCooks) {
+				cookingCooks.add(cook);
+				cookingCooks.notifyAll();
+				while (cookingCooks.size() < numberOfCookingCooks.get() || cook != cookingCooks.peek())
+					try {
+						cookingCooks.wait();
+					} catch (InterruptedException e) {}
+				cookingCooks.poll();
+			}
+			// only 1 cook thread can reach here at a time
+			// find the machine with earliest available time to prepare the remaining order
+			machine = null;
+			for (int i = 0; i < NUMBER_OF_FOOD_TYPES; ++i) {
+				int amount = cook.getOrder().getOrderAmount(i);
+				if (amount == 0) continue;
+				if (machine == null)
+					machine = machines.get(i);
+				else {
+					if (machine.getCurrentTime() > machines.get(i).getCurrentTime())
+						machine = machines.get(i);
+				}
+			}
+			if (machine != null)
+				cook.prepare(machine);
+		} while (machine != null);
+		numberOfCookingCooks.decrementAndGet();
+		synchronized (cookingCooks) {
+			cookingCooks.notifyAll();
+		}
 	}
 	
 	public static int readNonWhitespaceChar(BufferedReader reader) {
@@ -121,6 +177,7 @@ public class Restaurant {
 		} catch (FileNotFoundException e) {
 			System.exit(-1);
 		}
+		NUMBER_OF_FOOD_TYPES = 3;
 		
 		int numDiners = readInt(reader);
 		int numTables = readInt(reader);
@@ -136,6 +193,10 @@ public class Restaurant {
 			coke.add(readInt(reader));
 		}
 		Restaurant restaurant = new Restaurant(numTables, numCooks, arrival);
+		restaurant.addMachine(new Machine(0, 5));
+		restaurant.addMachine(new Machine(1, 3));
+		restaurant.addMachine(new Machine(2, 1));
+		
 		for (int i = 0; i < numCooks; ++i)
 			(new Thread(new Cook(i, restaurant))).start();
 		for (int i = 0; i < numDiners; ++i) {

@@ -17,6 +17,9 @@ public class Cook implements Runnable, Comparable<Cook> {
 	public int getNumber() {
 		return number;
 	}
+	public Order getOrder() {
+		return order;
+	}
 	public Table getTable() {
 		return table;
 	}
@@ -31,18 +34,19 @@ public class Cook implements Runnable, Comparable<Cook> {
 			currentTime = time;
 		order = table.getOrder();
 	}
-	private int getReadyToServeTime() { //TODO: change after adding machine
-		int time = currentTime;
-		time += order.getBurgers() * 5;
-		time += order.getFries() * 3;
-		time += order.getCoke() * 1;
-		return time;
+	public void prepare(Machine machine) {
+		int time = (currentTime < machine.getCurrentTime() ? machine.getCurrentTime() : currentTime);
+		order.setTimeForDishType(time, machine.getType());
+		time += machine.getUnitDuration() * order.getOrderAmount(machine.getType());
+		currentTime = time;
+		machine.setCurrentTime(time);
+		order.setOrderAmount(machine.getType(), 0);
 	}
 	@Override
 	public void run() {
 		while (true) {
 			restaurant.assignCook(this);
-			currentTime = getReadyToServeTime();
+			restaurant.preparingDish(this);
 			table.setServedTime(currentTime);
 		}
 	}
