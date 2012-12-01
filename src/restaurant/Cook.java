@@ -20,6 +20,9 @@ public class Cook implements Runnable, Comparable<Cook> {
 	public Order getOrder() {
 		return order;
 	}
+	public int getCurrentTime() {
+		return currentTime;
+	}
 	public Table getTable() {
 		return table;
 	}

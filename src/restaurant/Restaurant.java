@@ -17,7 +17,7 @@ public class Restaurant {
 	private PriorityQueue<Cook> availableCooks;
 	private final int numberOfCooks;
 	private PriorityQueue<Cook> cookingCooks;
-	private AtomicInteger numberOfCookingCooks;
+	private AtomicInteger numberOfPreparingOrders;
 	
 	private List<Machine> machines;
 	
@@ -33,7 +33,7 @@ public class Restaurant {
 		availableCooks = new PriorityQueue<Cook>();
 		numberOfCooks = numCooks;
 		cookingCooks = new PriorityQueue<Cook>();
-		numberOfCookingCooks = new AtomicInteger();
+		numberOfPreparingOrders = new AtomicInteger(1);
 		
 		machines = new ArrayList<Machine>();
 	}
@@ -48,7 +48,7 @@ public class Restaurant {
 			arrivedDiners.offer(diner);
 			arrivedDiners.notifyAll();
 			try {
-				while (arrivedDiners.size() < numberOfRemainDiners.get() ||
+				while (arrivedDiners.size() < numberOfRemainDiners.get()-numberOfPreparingOrders.get()+1 ||
 						diner != arrivedDiners.peek())
 					arrivedDiners.wait();
 				arrivedDiners.poll();
@@ -82,12 +82,12 @@ public class Restaurant {
 			synchronized (availableCooks) {
 				availableCooks.add(cook);
 				availableCooks.notifyAll();
-				while (availableCooks.size() < numberOfCooks || availableCooks.peek() != cook)
+				while (availableCooks.size() < numberOfCooks-numberOfPreparingOrders.get()+1 ||
+						availableCooks.peek() != cook)
 					availableCooks.wait();
 				availableCooks.poll();
 			}
 			cook.setTable(unassignedTables.take());
-			numberOfCookingCooks.incrementAndGet();
 		} catch (InterruptedException e) {}
 	}
 	public void preparingDish(Cook cook) {
@@ -96,7 +96,7 @@ public class Restaurant {
 			synchronized (cookingCooks) {
 				cookingCooks.add(cook);
 				cookingCooks.notifyAll();
-				while (cookingCooks.size() < numberOfCookingCooks.get() || cook != cookingCooks.peek())
+				while (cookingCooks.size() < numberOfPreparingOrders.get() || cook != cookingCooks.peek())
 					try {
 						cookingCooks.wait();
 					} catch (InterruptedException e) {}
@@ -115,13 +115,38 @@ public class Restaurant {
 						machine = machines.get(i);
 				}
 			}
-			if (machine != null)
+			if (machine != null) {
 				cook.prepare(machine);
+				if (isNextOrderAvailable(cook)) {
+					numberOfPreparingOrders.incrementAndGet();
+					synchronized (arrivedDiners) {
+						arrivedDiners.notifyAll();
+					}
+					synchronized (availableCooks) {
+						availableCooks.notifyAll();
+					}
+				}
+			}
 		} while (machine != null);
-		numberOfCookingCooks.decrementAndGet();
+		if (numberOfPreparingOrders.get() > 1)
+			numberOfPreparingOrders.decrementAndGet();
 		synchronized (cookingCooks) {
 			cookingCooks.notifyAll();
 		}
+	}
+	private boolean isNextOrderAvailable(Cook cook) {
+		Diner diner = arrivedDiners.peek();
+		Cook nextCook = availableCooks.peek();
+		Table table = tables.peek();
+		
+		if (diner == null || nextCook == null || table == null) return false;
+		
+		if (nextCook.getCurrentTime() < cook.getCurrentTime() &&
+				diner.getArrivalTime() < cook.getCurrentTime() &&
+				table.getCurrentTime() < cook.getCurrentTime()) {
+			return true;
+		}
+		return false;
 	}
 	
 	public static int readNonWhitespaceChar(BufferedReader reader) {
