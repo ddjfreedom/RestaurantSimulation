@@ -1,6 +1,6 @@
 package restaurant;
 
-public class Diner implements Runnable {
+public class Diner implements Runnable, Comparable<Diner> {
 	private static final int EATING_DURATION = 30;
 	private final int arrivalTime;
 	private Order order;
@@ -49,5 +49,14 @@ public class Diner implements Runnable {
 		servedTime = table.getServedTime();
 		printInfo();
 		restaurant.leave(this);
+	}
+	@Override
+	public int compareTo(Diner arg0) {
+		if (arrivalTime == arg0.arrivalTime)
+			return 0;
+		else if (arrivalTime < arg0.arrivalTime)
+			return -1;
+		else
+			return 1;
 	}
 }

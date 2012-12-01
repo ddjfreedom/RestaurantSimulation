@@ -8,13 +8,11 @@ import java.io.*;
 public class Restaurant {
 	public static int NUMBER_OF_FOOD_TYPES;
 	
-	private PriorityQueue<Integer> arrivalTimes;
+	private PriorityQueue<Diner> arrivedDiners;
 	private AtomicInteger numberOfRemainDiners;
 
-	private SynchronousQueue<Table> emptyTable;
 	private PriorityQueue<Table> tables;
 	private BlockingQueue<Table> unassignedTables;
-	private final int numberOfTables;
 	
 	private PriorityQueue<Cook> availableCooks;
 	private final int numberOfCooks;
@@ -24,15 +22,13 @@ public class Restaurant {
 	private List<Machine> machines;
 	
 	public Restaurant(int numTables, int numCooks, List<Integer> arrival) {
-		arrivalTimes = new PriorityQueue<Integer>(arrival);
+		arrivedDiners = new PriorityQueue<Diner>();
 		numberOfRemainDiners = new AtomicInteger(arrival.size());
 
-		emptyTable = new SynchronousQueue<Table>(true);
 		tables = new PriorityQueue<Table>(numTables);
 		for (int i = 0; i < numTables; ++i)
 			tables.add(new Table(i));
 		unassignedTables = new ArrayBlockingQueue<Table>(numTables, true);
-		numberOfTables = numTables;
 
 		availableCooks = new PriorityQueue<Cook>();
 		numberOfCooks = numCooks;
@@ -47,44 +43,35 @@ public class Restaurant {
 			machines.add(machine);
 		}
 	}
-	public void startSimulation() {
-		try {
-			emptyTable.put(tables.poll());
-		} catch (InterruptedException e) {}
-	}
 	public void enter(Diner diner) {
-		synchronized (arrivalTimes) {
+		synchronized (arrivedDiners) {
+			arrivedDiners.offer(diner);
+			arrivedDiners.notifyAll();
 			try {
-				while (arrivalTimes.peek() != diner.getArrivalTime())
-					arrivalTimes.wait();
-				Table table = emptyTable.take();
+				while (arrivedDiners.size() < numberOfRemainDiners.get() ||
+						diner != arrivedDiners.peek())
+					arrivedDiners.wait();
+				arrivedDiners.poll();
+				Table table = tables.poll();
 				diner.setTable(table);
 				unassignedTables.put(table);
 			} catch (InterruptedException e) {}
-			arrivalTimes.poll();
-			arrivalTimes.notifyAll();
 		}
 	}
 	public void leave(Diner diner) {
 		Table table = diner.getTable();
 		diner.setTable(null);
 		table.setCurrentTime(diner.getFinishedTime());
-		if (numberOfRemainDiners.decrementAndGet() == 0) {
-			System.out.println(diner.getFinishedTime());
-			System.exit(0);
-		}
 		
-		/*
-		 * ensure that emptyTables is ordered according to the timestamps
-		 * prevents tables with larger timestamps from getting inserted too early
-		 */
 		synchronized (tables) {
 			tables.add(table);
-			if (tables.size() == numberOfTables) {
-				try {
-					emptyTable.put(tables.poll());
-				} catch (InterruptedException e) {}
+		}
+		synchronized (arrivedDiners) {
+			if (numberOfRemainDiners.decrementAndGet() == 0) {
+				System.out.println(diner.getFinishedTime());
+				System.exit(0);
 			}
+			arrivedDiners.notifyAll();
 		}
 	}
 	public void assignCook(Cook cook) {
@@ -203,6 +190,5 @@ public class Restaurant {
 			Order order = new Order(burgers.get(i), fries.get(i), coke.get(i));
 			(new Thread(new Diner(arrival.get(i), order, restaurant))).start();
 		}
-		restaurant.startSimulation();
 	}
 }
