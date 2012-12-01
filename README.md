@@ -19,13 +19,10 @@ To simplify the simulation, we make the following assumptions.
 
 # Input
 
-Input has _N+3_ (_N_ is the number of diners) lines.
+Input has _N+3_ ( _N_ is the number of diners) lines.
 
 - number of diners
 - number of tables
 - number of cooks
 - _N_ lines consists of time the diner arrives, number of burgers,
   number of orders of fries, number of glasses of coke
-
-# TODO
-Machine needs to be implemented.
